@@ -1,0 +1,264 @@
+---
+title: 'CSP571 - Project '
+author: "Ruturaj Joshi - A20497857, Vikas Pathak - A20460927, Illinois Institute of Technology"
+output:
+  html_notebook:
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+---
+
+### Install libraries
+```{r}
+# install.packages("dplyr")
+# install.packages("rpart")
+# install.packages("rpart.plot")
+# install.packages("caret")
+# install.packages("randomForest")
+# install.packages("e1071")
+```
+
+### Load libraries
+```{r}
+library(dplyr)
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(randomForest)
+library(e1071)
+```
+
+
+### 1. Data preparation
+```{r}
+# Read data set
+airlineData <- read.csv("airline_passenger_satisfaction.csv")
+
+# Convert string data types into factors i.e. categorical data 
+airlineData$Gender <- as.factor(airlineData$Gender)
+airlineData$Customer.Type <- as.factor(airlineData$Customer.Type)
+airlineData$Type.of.Travel <- as.factor(airlineData$Type.of.Travel)
+airlineData$Class <- as.factor(airlineData$Class)
+airlineData$Satisfaction <- as.factor(airlineData$Satisfaction)
+
+# Describe data set
+str(airlineData)
+
+# Total number of rows in entire data set
+cat("Number of rows in airline dataset: ", nrow(airlineData))
+
+# Check & remove rows that has NA values
+df <- airlineData[rowSums(is.na(airlineData)) > 0, ]
+head(df)
+
+
+cat("Dataset has ", nrow(df), " rows that has NA value for at least one column.")
+airlineData <- airlineData[rowSums(is.na(airlineData)) == 0, ]
+cat("Row count after removing rows: ", nrow(airlineData))
+
+
+# Remove rows that has 0 as rating for at least one survey criteria. We are assuming that having 0 as rating indicates that customer might not have given rating or skipped that particular criteria.
+airlineData <- airlineData[!(airlineData$Departure.and.Arrival.Time.Convenience == 0 | airlineData$Ease.of.Online.Booking == 0 | airlineData$Check.in.Service == 0 | airlineData$Online.Boarding == 0 | airlineData$Gate.Location == 0 | airlineData$On.board.Service == 0 | airlineData$Seat.Comfort == 0 | airlineData$Leg.Room.Service == 0 | airlineData$Cleanliness == 0 | airlineData$Food.and.Drink == 0 | airlineData$In.flight.Service == 0 | airlineData$In.flight.Wifi.Service == 0 | airlineData$In.flight.Entertainment == 0),]
+
+cat("Row count after removing rows: ", nrow(airlineData))
+```
+
+### 2. Exploratory analysis
+```{r}
+# Response variable distribution
+pie(table(airlineData$Satisfaction), labels = c("56.6%", "43.4%"), col = c("#FA8072", "#30D5C8"))
+legend("topright", c("Neutral or Dissatisfied", "Satisfied"), cex = 0.8, fill = c("#FA8072", "#30D5C8"), title = "Customer Satisfaction")
+
+# Average rating for provided services in survey
+surveyCriteria <- c("Ease of Online Booking", "Check in Service", "Online Boarding", "Gate Location", "On-board Service", "Seat Comfort", "Leg Room Service", "Cleanliness", "Food and Drink", "In-flight Service", "In-flight Wi-Fi", "In-flight Entertainment", "Baggage Handling")
+avgRatings <- c(mean(airlineData$Ease.of.Online.Booking), mean(airlineData$Check.in.Service), mean(airlineData$Online.Boarding), mean(airlineData$Gate.Location), mean(airlineData$On.board.Service), mean(airlineData$Seat.Comfort), mean(airlineData$Leg.Room.Service), mean(airlineData$Cleanliness), mean(airlineData$Food.and.Drink), mean(airlineData$In.flight.Service), mean(airlineData$In.flight.Wifi.Service), mean(airlineData$In.flight.Entertainment), mean(airlineData$Baggage.Handling))
+avgRatings <- round(avgRatings, digits = 1)
+
+ggplot(as.data.frame(cbind(surveyCriteria, avgRatings)), aes(x = surveyCriteria, y = avgRatings)) + 
+  geom_bar(stat = 'identity', fill = "#01675E") +
+  theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust = 1)) +
+  ggtitle("Average Ratings for Survey Criterias") +
+  xlab("Survey Criteria") +
+  ylab("Average Rating") +
+  coord_flip()
+
+# Gender Vs Satisfaction
+dissatisfiedMales <- nrow(airlineData %>% filter(Gender == "Male" & Satisfaction == "Neutral or Dissatisfied"))
+satisfiedMales <- nrow(airlineData %>% filter(Gender == "Male" & Satisfaction == "Satisfied"))
+dissatisfiedFemales <- nrow(airlineData %>% filter(Gender == "Female" & Satisfaction == "Neutral or Dissatisfied"))
+satisfiedFemales <- nrow(airlineData %>% filter(Gender == "Female" & Satisfaction == "Satisfied"))
+
+gender <- c("Male", "Male", "Female", "Female")
+response <- c("Satisfied", "Neutral or Dissatisfied", "Satisfied", "Neutral or Dissatisfied")
+cnt <- c(satisfiedMales, dissatisfiedMales, satisfiedFemales, dissatisfiedFemales)
+
+ggplot(as.data.frame(cbind(gender, response, cnt)), aes(x = response, y = cnt, fill = gender)) + 
+  geom_bar(stat = 'identity', position = 'dodge') +
+  ggtitle("Gender Vs Satisfaction") +
+  labs(fill = "Gender") +
+  xlab("Customer Satisfaction") +
+  ylab("No. of Customer")
+
+# Customer Type Vs Satisfaction
+firstTimeSatisfiedCust <- nrow(airlineData %>% filter(Customer.Type == "First-time" & Satisfaction == "Satisfied"))
+firstTimeDissatisfiedCust <- nrow(airlineData %>% filter(Customer.Type == "First-time" & Satisfaction == "Neutral or Dissatisfied"))
+returningSatisfiedCust <- nrow(airlineData %>% filter(Customer.Type == "Returning" & Satisfaction == "Satisfied"))
+returningDissatisfiedCust <- nrow(airlineData %>% filter(Customer.Type == "Returning" & Satisfaction == "Neutral or Dissatisfied"))
+
+custType <- c('First-time', 'First-time', 'Returning', 'Returning')
+cnt <- c(firstTimeSatisfiedCust, firstTimeDissatisfiedCust, returningSatisfiedCust, returningDissatisfiedCust)
+
+ggplot(as.data.frame(cbind(custType, response, cnt)), aes(x = response, y = cnt, fill = custType)) + 
+  geom_bar(stat = 'identity', position = 'dodge') +
+  ggtitle("Customer Type Vs Satisfaction") +
+  labs(fill = "Customer Type") +
+  xlab("Customer Satisfaction") +
+  ylab("No. of Customer")
+
+# Class Vs Satisfaction
+businessClassSatisfiedCust <- nrow(airlineData %>% filter(Class == "Business" & Satisfaction == "Satisfied"))
+businessClassDissatisfiedCust <- nrow(airlineData %>% filter(Class == "Business" & Satisfaction == "Neutral or Dissatisfied"))
+economyPlusClassSatisfiedCust <- nrow(airlineData %>% filter(Class == "Economy Plus" & Satisfaction == "Satisfied"))
+economyPlusClassDissatisfiedCust <- nrow(airlineData %>% filter(Class == "Economy Plus" & Satisfaction == "Neutral or Dissatisfied"))
+economyClassSatisfiedCust <- nrow(airlineData %>% filter(Class == "Economy" & Satisfaction == "Satisfied"))
+economyClassDissatisfiedCust <- nrow(airlineData %>% filter(Class == "Economy" & Satisfaction == "Neutral or Dissatisfied"))
+
+businessClass <- c("Business", "Business", "Economy Plus", "Economy Plus", "Economy", "Economy")
+response <- c("Satisfied", "Neutral or Dissatisfied", "Satisfied", "Neutral or Dissatisfied", "Satisfied", "Neutral or Dissatisfied")
+cnt <- c(businessClassSatisfiedCust, businessClassDissatisfiedCust, economyPlusClassSatisfiedCust, economyPlusClassDissatisfiedCust, economyClassSatisfiedCust, economyClassDissatisfiedCust)
+
+ggplot(as.data.frame(cbind(businessClass, response, cnt)), aes(x = response, y = cnt, fill = businessClass)) + 
+  geom_bar(stat = 'identity', position = 'dodge') +
+  ggtitle("Travel Class Vs Satisfaction") +
+  labs(fill = "Travel Class") +
+  xlab("Customer Satisfaction") +
+  ylab("No. of Customer")
+
+# Age distribution by travel class
+businessClassCust <- airlineData %>% filter(Class == "Business")
+hist(businessClassCust$Age, col = '#ffdfba', main = "Customer's Age Distribution in Business Class", xlab = "Customer Age", ylab = "No. of Customer")
+
+economyPlusClassCust <- airlineData %>% filter(Class == "Economy Plus")
+hist(economyPlusClassCust$Age, col = '#baffc9', main = "Customer's Age Distribution in Economy Plus Class", xlab = "Customer Age", ylab = "No. of Customer")
+
+economyClassCust <- airlineData %>% filter(Class == "Economy")
+hist(economyClassCust$Age, col = '#bae1ff', main = "Customer's Age Distribution in Economy Class", xlab = "Customer Age", ylab = "No. of Customer")
+
+# Cor Plot
+#library(ggcorrplot)
+model.matrix(~0 + ., data = airlineData[, 7:23]) %>% 
+  cor(use = "pairwise.complete.obs") %>% 
+  ggcorrplot(show.diag = F, type = "lower", lab=TRUE, lab_size = 2)
+```
+
+### 3. Create train and test data partition
+```{r}
+set.seed(1234)
+index <- sample(1:nrow(airlineData), 0.20*nrow(airlineData))
+test.df <- airlineData[index, ]
+train.df <- airlineData[-index, ]
+
+cat("Number of rows:\n1. Training dataset: ", nrow(train.df), "\n2. Testing dataset: ", nrow(test.df))
+```
+
+### 4. Decision tree
+```{r}
+decisionTree <- rpart(Satisfaction ~ Online.Boarding + In.flight.Wifi.Service + Seat.Comfort + Ease.of.Online.Booking + Type.of.Travel + Class + In.flight.Entertainment + Age + Leg.Room.Service + Cleanliness, data = train.df, method = "class")
+
+# Plot decision tree
+rpart.plot(decisionTree, type = 4, main = "Decision Tree")
+
+# Print model summary
+summary(decisionTree)
+
+# Print variables of importance
+print(as.data.frame(decisionTree$variable.importance))
+
+# Test decision tree on test data set 
+predictions <- predict(decisionTree, test.df, type = "class")
+
+# Generate confusion matrix
+decisionTreeConfMatrix <- confusionMatrix(predictions, test.df$Satisfaction)
+decisionTreeConfMatrix
+
+```
+
+### 5. Random Forest
+```{r}
+randomForestModel <- randomForest(Satisfaction ~ Online.Boarding + In.flight.Wifi.Service + Seat.Comfort + Ease.of.Online.Booking + Type.of.Travel + Class + In.flight.Entertainment + Age + Leg.Room.Service + Cleanliness, data = train.df)
+
+# Print model
+print(randomForestModel)
+
+# Print variables of importance
+print(as.data.frame(randomForestModel$importance))
+
+# Test random forest model on test data set
+randomForestPredictions <- predict(randomForestModel, test.df, type = "class")
+
+# Generate confusion matrix
+randomForestConfMatrix <- confusionMatrix(randomForestPredictions, test.df$Satisfaction)
+randomForestConfMatrix
+```
+
+### 6. Naive Bayes classifier
+```{r}
+naiveBayesModel <- naiveBayes(Satisfaction ~ Online.Boarding + In.flight.Wifi.Service + Seat.Comfort + Ease.of.Online.Booking + Type.of.Travel + Class + In.flight.Entertainment + Age + Leg.Room.Service + Cleanliness, data = train.df)
+
+# Print model summary
+print(naiveBayesModel)
+
+# Test classifier on test data set
+naiveBayesPredictions <- predict(naiveBayesModel, test.df, type = "class")
+
+# Generate confusion matrix
+naiveBayesConfMatrix <- confusionMatrix(naiveBayesPredictions, test.df$Satisfaction)
+naiveBayesConfMatrix
+```
+
+### 6. Logistic regression
+```{r}
+# "Satisfied" = 1 & "Neutral or Dissatisfied" = 0 
+train.df$satisfactionCode <- ifelse(train.df$Satisfaction == "Satisfied", 1, 0)
+test.df$satisfactionCode <- ifelse(test.df$Satisfaction == "Satisfied", 1, 0)
+
+logisticModel <- glm(satisfactionCode ~ Online.Boarding + In.flight.Wifi.Service + Seat.Comfort + Ease.of.Online.Booking + Type.of.Travel + Class + In.flight.Entertainment + Age + Leg.Room.Service + Cleanliness, data = train.df, family = "binomial")
+
+# Print summary of logistic model
+summary(logisticModel)
+
+# Print coefficients of predictors
+as.data.frame(logisticModel$coefficients)
+
+# Test classifier on test data set
+logisticModelPredictions <- predict(logisticModel, test.df)
+logisticModelPredictions <- ifelse(logisticModelPredictions > 0.5, 1, 0)
+
+# Generate confusion matrix
+logisticModelConfMatrix <- confusionMatrix(as.factor(logisticModelPredictions), as.factor(test.df$satisfactionCode))
+logisticModelConfMatrix
+```
+
+### 7. Model comparisons
+```{r}
+models <- c("Logistic Model", "Decision Tree", "Random Forest", "Naive Bayes")
+
+accuracy <- c(round(logisticModelConfMatrix$overall['Accuracy'], 3), round(decisionTreeConfMatrix$overall['Accuracy'], 3), round(randomForestConfMatrix$overall['Accuracy'], 3), round(naiveBayesConfMatrix$overall['Accuracy'], 3))
+
+balancedAccuracy <- c(round(logisticModelConfMatrix$byClass['Balanced Accuracy'], 3), round(decisionTreeConfMatrix$byClass['Balanced Accuracy'], 3), round(randomForestConfMatrix$byClass['Balanced Accuracy'], 3), round(naiveBayesConfMatrix$byClass['Balanced Accuracy'], 3))
+
+specificity <- c(round(logisticModelConfMatrix$byClass['Specificity'], 3), round(decisionTreeConfMatrix$byClass['Specificity'], 3), round(randomForestConfMatrix$byClass['Specificity'], 3), round(naiveBayesConfMatrix$byClass['Specificity'], 3))
+
+sensitivity <- c(round(logisticModelConfMatrix$byClass['Sensitivity'], 3), round(decisionTreeConfMatrix$byClass['Sensitivity'], 3), round(randomForestConfMatrix$byClass['Sensitivity'], 3), round(naiveBayesConfMatrix$byClass['Sensitivity'], 3))
+
+precision <- c(round(logisticModelConfMatrix$byClass['Precision'], 3), round(decisionTreeConfMatrix$byClass['Precision'], 3), round(randomForestConfMatrix$byClass['Precision'], 3), round(naiveBayesConfMatrix$byClass['Precision'], 3))
+
+error <- c(1 - round(logisticModelConfMatrix$overall['Accuracy'], 3), 1 - round(decisionTreeConfMatrix$overall['Accuracy'], 3), 1 - round(randomForestConfMatrix$overall['Accuracy'], 3), 1 - round(naiveBayesConfMatrix$overall['Accuracy'], 3))
+
+performanceMatrix <- as.data.frame(cbind(models, accuracy, balancedAccuracy, specificity, sensitivity, precision, error), row.names = FALSE)
+colnames(performanceMatrix) <- c("Models", "Accuracy", "Balanced Accuracy", "Specificity", "Sensitivity", "Precision", "Error")
+performanceMatrix
+```
+
+
